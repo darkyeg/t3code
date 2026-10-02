@@ -318,6 +318,8 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       sshFails = true;
       const unresolved = yield* resolveKey("gh:DarkyEg/spinup");
       expect(unresolved?.canonicalKey).toBe("gh/darkyeg/spinup");
+      // A login spelled in the remote keys its home the same with or without ssh.
+      expect((yield* resolveKey("darky@192.168.8.105:app.git"))?.canonicalKey).toBe(darkyHome);
     }).pipe(Effect.provide(resolverLayer));
   });
 

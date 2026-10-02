@@ -92,11 +92,11 @@ describe("normalizeGitRemoteUrl", () => {
   });
 
   it("keys an SCP-like absolute path like the same path over ssh://", () => {
-    expect(normalizeGitRemoteUrl("deploy@192.168.8.105:/srv/git/App.git")).toBe(
-      "192.168.8.105/srv/git/app",
+    expect(normalizeGitRemoteUrl("deploy@192.0.2.10:/srv/git/App.git")).toBe(
+      "192.0.2.10/srv/git/app",
     );
-    expect(normalizeGitRemoteUrl("ssh://deploy@192.168.8.105/srv/git/App.git")).toBe(
-      "192.168.8.105/srv/git/app",
+    expect(normalizeGitRemoteUrl("ssh://deploy@192.0.2.10/srv/git/App.git")).toBe(
+      "192.0.2.10/srv/git/app",
     );
     expect(normalizeGitRemoteUrl("file:///srv/git/App.git")).toBe("file:///srv/git/app");
   });

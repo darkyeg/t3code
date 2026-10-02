@@ -179,16 +179,16 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
 
   it.effect("keys a remote through its SSH host alias", () => {
     const sshHosts: Array<string> = [];
-    let remoteUrl = "gh:DarkyEg/spinup";
+    let remoteUrl = "gh:T3Tools/t3code";
     let sshFails = false;
     // `Host gh` / `HostName github.com`, `Host gh443` for the port-443 endpoint,
-    // and `admin` / `codex`, two logins on one server.
+    // and `alice-box` / `bob-box`, two logins on one server.
     const sshConfigs: Record<string, string> = {
       gh: "user git\nhostname github.com",
       gh443: "user git\nhostname ssh.github.com",
-      admin: "user darky\nhostname 192.168.8.105",
-      codex: "user codex-remote\nhostname 192.168.8.105",
-      nouser: "user usfkh\nhostname github.com",
+      "alice-box": "user alice\nhostname 192.0.2.10",
+      "bob-box": "user bob\nhostname 192.0.2.10",
+      nouser: "user localuser\nhostname github.com",
       // `Match originalhost review user git` picks GitHub; otherwise GitLab.
       "git@review": "user git\nhostname github.com",
       review: "user me\nhostname gitlab.com",
@@ -232,29 +232,29 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
         return resolver.resolve("/repo", { refresh: true });
       };
 
-      const aliased = yield* resolveKey("gh:DarkyEg/spinup");
-      expect(aliased?.canonicalKey).toBe("github.com/darkyeg/spinup");
+      const aliased = yield* resolveKey("gh:T3Tools/t3code");
+      expect(aliased?.canonicalKey).toBe("github.com/t3tools/t3code");
       expect(aliased?.provider).toBe("github");
-      expect(aliased?.owner).toBe("darkyeg");
+      expect(aliased?.owner).toBe("t3tools");
       // Git still reaches the repository through the alias.
-      expect(aliased?.locator.remoteUrl).toBe("gh:DarkyEg/spinup");
+      expect(aliased?.locator.remoteUrl).toBe("gh:T3Tools/t3code");
 
-      expect((yield* resolveKey("me@gh:DarkyEg/spinup.git"))?.canonicalKey).toBe(
-        "github.com/darkyeg/spinup",
+      expect((yield* resolveKey("me@gh:T3Tools/t3code.git"))?.canonicalKey).toBe(
+        "github.com/t3tools/t3code",
       );
-      expect((yield* resolveKey("ssh://gh/DarkyEg/spinup.git"))?.canonicalKey).toBe(
-        "github.com/darkyeg/spinup",
+      expect((yield* resolveKey("ssh://gh/T3Tools/t3code.git"))?.canonicalKey).toBe(
+        "github.com/t3tools/t3code",
       );
-      expect((yield* resolveKey("git+ssh://git@gh:2222/DarkyEg/spinup"))?.canonicalKey).toBe(
-        "github.com/darkyeg/spinup",
+      expect((yield* resolveKey("git+ssh://git@gh:2222/T3Tools/t3code"))?.canonicalKey).toBe(
+        "github.com/t3tools/t3code",
       );
-      expect((yield* resolveKey("gh443:DarkyEg/spinup"))?.canonicalKey).toBe(
-        "github.com/darkyeg/spinup",
+      expect((yield* resolveKey("gh443:T3Tools/t3code"))?.canonicalKey).toBe(
+        "github.com/t3tools/t3code",
       );
       // A server alias with an absolute path keys like the same path by address.
-      const byAlias = yield* resolveKey("admin:/srv/git/app.git");
-      const byAddress = yield* resolveKey("ssh://deploy@192.168.8.105/srv/git/app.git");
-      expect(byAlias?.canonicalKey).toBe("192.168.8.105/srv/git/app");
+      const byAlias = yield* resolveKey("alice-box:/srv/git/app.git");
+      const byAddress = yield* resolveKey("ssh://deploy@192.0.2.10/srv/git/app.git");
+      expect(byAlias?.canonicalKey).toBe("192.0.2.10/srv/git/app");
       expect(byAddress?.canonicalKey).toBe(byAlias?.canonicalKey);
       // The remote's user and port reach ssh, which `Match` rules can depend on.
       expect(sshHosts).toEqual([
@@ -263,23 +263,19 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
         "gh",
         "-l git -p 2222 gh",
         "gh443",
-        "admin",
-        "-l deploy 192.168.8.105",
+        "alice-box",
+        "-l deploy 192.0.2.10",
       ]);
       expect((yield* resolveKey("git@review:Team/App"))?.canonicalKey).toBe("github.com/team/app");
       expect((yield* resolveKey("review:Team/App"))?.canonicalKey).toBe("gitlab.com/team/app");
 
       // A relative path on a server is in the login's home: two logins, two repositories.
-      const darkyHome = "192.168.8.105/~darky/app";
-      expect((yield* resolveKey("admin:app.git"))?.canonicalKey).toBe(darkyHome);
-      expect((yield* resolveKey("codex:app.git"))?.canonicalKey).toBe(
-        "192.168.8.105/~codex-remote/app",
-      );
-      expect((yield* resolveKey("darky@192.168.8.105:~/app.git"))?.canonicalKey).toBe(darkyHome);
-      expect((yield* resolveKey("ssh://darky@192.168.8.105/~/app.git"))?.canonicalKey).toBe(
-        darkyHome,
-      );
-      expect((yield* resolveKey("codex:~darky/app.git"))?.canonicalKey).toBe(darkyHome);
+      const aliceHome = "192.0.2.10/~alice/app";
+      expect((yield* resolveKey("alice-box:app.git"))?.canonicalKey).toBe(aliceHome);
+      expect((yield* resolveKey("bob-box:app.git"))?.canonicalKey).toBe("192.0.2.10/~bob/app");
+      expect((yield* resolveKey("alice@192.0.2.10:~/app.git"))?.canonicalKey).toBe(aliceHome);
+      expect((yield* resolveKey("ssh://alice@192.0.2.10/~/app.git"))?.canonicalKey).toBe(aliceHome);
+      expect((yield* resolveKey("bob-box:~alice/app.git"))?.canonicalKey).toBe(aliceHome);
       // A forge reads the path as the repository, whatever the login.
       expect((yield* resolveKey("me@gitlab.example.com:team/app.git"))?.canonicalKey).toBe(
         "gitlab.example.com/team/app",
@@ -290,8 +286,8 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       for (const [remote, key] of [
         ["git@bitbucket.org:Team/App.git", "bitbucket.org/team/app"],
         ["https://me@bitbucket.org/Team/App.git", "bitbucket.org/team/app"],
-        ["git@git.sr.ht:~darky/app", "git.sr.ht/~darky/app"],
-        ["https://git.sr.ht/~darky/app", "git.sr.ht/~darky/app"],
+        ["git@git.sr.ht:~alice/app", "git.sr.ht/~alice/app"],
+        ["https://git.sr.ht/~alice/app", "git.sr.ht/~alice/app"],
         // A self-hosted forge on a plain name still serves everyone as `git`.
         ["git@git.corp.example:team/app.git", "git.corp.example/team/app"],
         ["https://git.corp.example/team/app", "git.corp.example/team/app"],
@@ -308,18 +304,18 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       const sshCalls = sshHosts.length;
 
       // Neither HTTPS nor a host ssh would read as an option reaches ssh.
-      expect((yield* resolveKey("https://github.com/DarkyEg/spinup"))?.canonicalKey).toBe(
-        "github.com/darkyeg/spinup",
+      expect((yield* resolveKey("https://github.com/T3Tools/t3code"))?.canonicalKey).toBe(
+        "github.com/t3tools/t3code",
       );
-      yield* resolveKey("-oProxyCommand=calc:DarkyEg/spinup");
+      yield* resolveKey("-oProxyCommand=calc:T3Tools/t3code");
       expect(sshHosts).toHaveLength(sshCalls);
 
       // Without ssh, the alias keys the repository as before.
       sshFails = true;
-      const unresolved = yield* resolveKey("gh:DarkyEg/spinup");
-      expect(unresolved?.canonicalKey).toBe("gh/darkyeg/spinup");
+      const unresolved = yield* resolveKey("gh:T3Tools/t3code");
+      expect(unresolved?.canonicalKey).toBe("gh/t3tools/t3code");
       // A login spelled in the remote keys its home the same with or without ssh.
-      expect((yield* resolveKey("darky@192.168.8.105:app.git"))?.canonicalKey).toBe(darkyHome);
+      expect((yield* resolveKey("alice@192.0.2.10:app.git"))?.canonicalKey).toBe(aliceHome);
     }).pipe(Effect.provide(resolverLayer));
   });
 

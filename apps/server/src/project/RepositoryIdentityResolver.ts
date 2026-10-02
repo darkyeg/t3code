@@ -127,7 +127,7 @@ function parseSshConfigValue(stdout: string, key: string): string | undefined {
 /**
  * The path with a relative one spelled under its login's home (`~user/app.git`).
  *
- * On a plain server `darky@host:app.git` and `codex@host:app.git` are two
+ * On a plain server `alice@host:app.git` and `bob@host:app.git` are two
  * repositories, one in each home. Forges serve every repository to one shared
  * `git` login and read the path as the repository's name, so theirs stay as is.
  */

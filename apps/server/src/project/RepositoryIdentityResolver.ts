@@ -77,9 +77,10 @@ const SSH_ENDPOINT_HOSTS: Readonly<Record<string, string>> = {
   "altssh.gitlab.com": "gitlab.com",
   "altssh.bitbucket.org": "bitbucket.org",
 };
-// Only a plain host name goes to ssh as an argument, so a remote naming
-// `-oProxyCommand=…` cannot pass it an option.
-const SSH_HOST_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
+// Only plain host and user names go to ssh, so a remote can neither pass it an
+// option (`-oProxyCommand=…`) nor put shell syntax in the `%h` / `%r` tokens a
+// `Match exec` line expands. OpenSSH before 9.6 does not reject those itself.
+const SSH_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
 
 interface SshRemote {
   readonly user: string | undefined;
@@ -153,7 +154,12 @@ const expandSshHostAlias = Effect.fn("RepositoryIdentityResolver.expandSshHostAl
   remoteUrl: string,
 ) {
   const remote = parseSshRemote(remoteUrl);
-  if (!remote || !SSH_HOST_NAME_PATTERN.test(remote.host)) return remoteUrl;
+  if (
+    !remote ||
+    ![remote.host, remote.user ?? "git"].every((name) => SSH_NAME_PATTERN.test(name))
+  ) {
+    return remoteUrl;
+  }
 
   const processRunner = yield* ProcessRunner.ProcessRunner;
   const result = yield* processRunner

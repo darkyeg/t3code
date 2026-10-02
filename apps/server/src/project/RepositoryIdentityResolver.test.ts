@@ -303,11 +303,14 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       }
       const sshCalls = sshHosts.length;
 
-      // Neither HTTPS nor a host ssh would read as an option reaches ssh.
+      // HTTPS never reaches ssh, nor does a host that reads as an option or a
+      // user with shell syntax a `Match exec` `%r` would expand.
       expect((yield* resolveKey("https://github.com/T3Tools/t3code"))?.canonicalKey).toBe(
         "github.com/t3tools/t3code",
       );
       yield* resolveKey("-oProxyCommand=calc:T3Tools/t3code");
+      yield* resolveKey("x;id@gh:T3Tools/t3code");
+      yield* resolveKey("ssh://x%3Bid@gh/T3Tools/t3code");
       expect(sshHosts).toHaveLength(sshCalls);
 
       // Without ssh, the alias keys the repository as before.

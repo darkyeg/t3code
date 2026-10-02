@@ -171,9 +171,12 @@ export function normalizeGitRemoteUrl(value: string): string {
     }
   }
 
-  const scpStyleHostAndPath = /^[a-zA-Z0-9._-]+@([^:/\s]+):([^/\s]+(?:\/[^/\s]+)+)$/i.exec(
-    normalized,
-  );
+  // The user is optional, as git allows (`host:owner/repo`). A one-letter host
+  // is a Windows drive (`c:/repos/app`), which git reads as a path. An absolute
+  // path (`host:/srv/repo`) keys like `ssh://host/srv/repo`, the same repository.
+  const scpStyleHostAndPath = normalized.includes("://")
+    ? null
+    : /^(?:[a-zA-Z0-9._-]+@)?([^:/\s@]{2,}):\/?([^/\s]+(?:\/[^/\s]+)+)$/i.exec(normalized);
   const scpHost = scpStyleHostAndPath?.[1];
   const scpPath = scpStyleHostAndPath?.[2];
   if (scpHost && scpPath) {

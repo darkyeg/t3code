@@ -83,6 +83,27 @@ describe("normalizeGitRemoteUrl", () => {
       "ssh.dev.azure.com/v3/t3tools/t3code",
     );
   });
+
+  it("normalizes SCP-like remotes that leave out the SSH user", () => {
+    expect(normalizeGitRemoteUrl("github.com:T3Tools/T3Code.git")).toBe(
+      "github.com/t3tools/t3code",
+    );
+    expect(normalizeGitRemoteUrl("gh:T3Tools/T3Code")).toBe("gh/t3tools/t3code");
+  });
+
+  it("keys an SCP-like absolute path like the same path over ssh://", () => {
+    expect(normalizeGitRemoteUrl("deploy@192.168.8.105:/srv/git/App.git")).toBe(
+      "192.168.8.105/srv/git/app",
+    );
+    expect(normalizeGitRemoteUrl("ssh://deploy@192.168.8.105/srv/git/App.git")).toBe(
+      "192.168.8.105/srv/git/app",
+    );
+    expect(normalizeGitRemoteUrl("file:///srv/git/App.git")).toBe("file:///srv/git/app");
+  });
+
+  it("leaves a Windows drive path alone", () => {
+    expect(normalizeGitRemoteUrl("C:/repos/T3Code")).toBe("c:/repos/t3code");
+  });
 });
 
 describe("parseOriginUrlFromGitConfig", () => {

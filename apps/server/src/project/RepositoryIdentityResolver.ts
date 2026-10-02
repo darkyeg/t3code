@@ -70,13 +70,128 @@ function pickPrimaryRemote(
   return remoteName && remoteUrl ? { remoteName, remoteUrl } : null;
 }
 
+// The SSH-over-443 endpoints providers document. They serve the same
+// repositories as the main host, so they key the same.
+const SSH_ENDPOINT_HOSTS: Readonly<Record<string, string>> = {
+  "ssh.github.com": "github.com",
+  "altssh.gitlab.com": "gitlab.com",
+  "altssh.bitbucket.org": "bitbucket.org",
+};
+// Only a plain host name goes to ssh as an argument, so a remote naming
+// `-oProxyCommand=…` cannot pass it an option.
+const SSH_HOST_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
+
+interface SshRemote {
+  readonly user: string | undefined;
+  readonly host: string;
+  readonly port?: string;
+  readonly path: string;
+}
+
+/**
+ * The parts of an SSH remote in either spelling git accepts: `[user@]host:path`
+ * or `ssh://[user@]host[:port]/path`. Null for every other transport.
+ */
+function parseSshRemote(remoteUrl: string): SshRemote | null {
+  const trimmed = remoteUrl.trim();
+  if (/^(?:ssh|git\+ssh|ssh\+git):\/\//i.test(trimmed)) {
+    try {
+      const url = new URL(trimmed.replace(/^[^:]+:/, "ssh:"));
+      if (!url.hostname || url.pathname.length <= 1) return null;
+      // The path stays absolute, so the SCP spelling below names the same one.
+      return {
+        user: url.username ? decodeURIComponent(url.username) : undefined,
+        host: url.hostname,
+        ...(url.port ? { port: url.port } : {}),
+        path: url.pathname,
+      };
+    } catch {
+      return null;
+    }
+  }
+  if (trimmed.includes("://")) return null;
+  // A one-letter host is a Windows drive, which git reads as a path.
+  const match = /^(?:([^@/\s]+)@)?([^:/\s@]{2,}):(\S+)$/.exec(trimmed);
+  const [, user, host, path] = match ?? [];
+  return host && path ? { user, host, path } : null;
+}
+
+function parseSshConfigValue(stdout: string, key: string): string | undefined {
+  for (const line of stdout.split("\n")) {
+    const [name, ...value] = line.trim().split(/\s+/);
+    if (name?.toLowerCase() === key && value.length > 0) return value.join(" ");
+  }
+  return undefined;
+}
+
+/**
+ * The path with a relative one spelled under its login's home (`~user/app.git`).
+ *
+ * On a plain server `darky@host:app.git` and `codex@host:app.git` are two
+ * repositories, one in each home. Forges serve every repository to one shared
+ * `git` login and read the path as the repository's name, so theirs stay as is.
+ */
+function homeQualifiedPath(path: string, user: string | undefined, host: string): string {
+  if (!user || user === "git") return path;
+  if (detectSourceControlProviderFromGitRemoteUrl(`git@${host}:`)?.kind !== "unknown") return path;
+  const inOwnHome = path.replace(/^\/?~\//, "");
+  // Absolute (`/srv/app.git`) or in a named home (`~other/app.git`) already.
+  if (inOwnHome === path && /^[/~]/.test(path)) return path;
+  return `~${user}/${inOwnHome}`;
+}
+
+/**
+ * The remote with an `~/.ssh/config` host alias replaced by the host it names.
+ *
+ * `gh:owner/repo` with `Host gh` / `HostName github.com` is the same repository
+ * as `https://github.com/owner/repo`, but only ssh knows that. Asking `ssh -G`
+ * reads the config the way ssh does (`Include`, `Match`, wildcards) without
+ * connecting. The remote's user and port go along, since `Match` rules can
+ * depend on them. A remote that is not SSH, or that ssh cannot read, stays as is.
+ */
+const expandSshHostAlias = Effect.fn("RepositoryIdentityResolver.expandSshHostAlias")(function* (
+  remoteUrl: string,
+) {
+  const remote = parseSshRemote(remoteUrl);
+  if (!remote || !SSH_HOST_NAME_PATTERN.test(remote.host)) return remoteUrl;
+
+  const processRunner = yield* ProcessRunner.ProcessRunner;
+  const result = yield* processRunner
+    .run({
+      command: "ssh",
+      args: [
+        "-G",
+        ...(remote.user ? ["-l", remote.user] : []),
+        ...(remote.port ? ["-p", remote.port] : []),
+        remote.host,
+      ],
+      timeout: Duration.seconds(5),
+      timeoutBehavior: "timedOutResult",
+    })
+    .pipe(Effect.option);
+  const sshConfig = result._tag === "Some" && result.value.code === 0 ? result.value.stdout : "";
+
+  const hostName = (parseSshConfigValue(sshConfig, "hostname") ?? remote.host).toLowerCase();
+  const host = SSH_ENDPOINT_HOSTS[hostName] ?? hostName;
+  // An IPv6 address has no SCP spelling without brackets git would misread.
+  if (host.includes(":")) return remoteUrl;
+  const user = remote.user ?? parseSshConfigValue(sshConfig, "user");
+  const path = homeQualifiedPath(remote.path, user, host);
+  if (host === remote.host.toLowerCase() && path === remote.path) return remoteUrl;
+  return `${user ?? "git"}@${host}:${path}`;
+});
+
 function buildRepositoryIdentity(input: {
   readonly remoteName: string;
   readonly remoteUrl: string;
+  /** The remote with SSH host aliases expanded, which keys the repository. */
+  readonly resolvedRemoteUrl: string;
   readonly rootPath: string;
 }): RepositoryIdentity {
-  const canonicalKey = normalizeGitRemoteUrl(input.remoteUrl);
-  const sourceControlProvider = detectSourceControlProviderFromGitRemoteUrl(input.remoteUrl);
+  const canonicalKey = normalizeGitRemoteUrl(input.resolvedRemoteUrl);
+  const sourceControlProvider = detectSourceControlProviderFromGitRemoteUrl(
+    input.resolvedRemoteUrl,
+  );
   const repositoryPath = canonicalKey.split("/").slice(1).join("/");
   const repositoryPathSegments = repositoryPath.split("/").filter((segment) => segment.length > 0);
   const [owner] = repositoryPathSegments;
@@ -136,8 +251,12 @@ const resolveRepositoryIdentityFromCacheKey = Effect.fn(
     return null;
   }
 
+  // `git remote -v` already applies `url.<base>.insteadOf`; SSH host aliases
+  // live outside git, so they are expanded here.
   const remote = pickPrimaryRemote(parseRemoteFetchUrls(remoteResult.value.stdout));
-  return remote ? buildRepositoryIdentity({ ...remote, rootPath: cacheKey }) : null;
+  if (!remote) return null;
+  const resolvedRemoteUrl = yield* expandSshHostAlias(remote.remoteUrl);
+  return buildRepositoryIdentity({ ...remote, resolvedRemoteUrl, rootPath: cacheKey });
 });
 
 export const make = Effect.fn("RepositoryIdentityResolver.make")(function* (

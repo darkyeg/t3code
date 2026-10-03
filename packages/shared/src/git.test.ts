@@ -99,6 +99,9 @@ describe("normalizeGitRemoteUrl", () => {
       "192.0.2.10/srv/git/app",
     );
     expect(normalizeGitRemoteUrl("file:///srv/git/App.git")).toBe("file:///srv/git/app");
+    // A repository straight under the root has one path segment.
+    expect(normalizeGitRemoteUrl("deploy@192.0.2.10:/App.git")).toBe("192.0.2.10/app");
+    expect(normalizeGitRemoteUrl("ssh://deploy@192.0.2.10/App.git")).toBe("192.0.2.10/app");
   });
 
   it("leaves a Windows drive path alone", () => {

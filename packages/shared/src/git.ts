@@ -160,7 +160,7 @@ export function normalizeGitRemoteUrl(value: string): string {
     try {
       const url = new URL(normalized);
       const repositorySegments = url.pathname.split("/").filter((segment) => segment.length > 0);
-      if (url.hostname && repositorySegments.length > 1) {
+      if (url.hostname && repositorySegments.length > 0) {
         return (
           azureDevOpsRepositoryKey(url.hostname, repositorySegments) ??
           `${url.hostname}/${repositorySegments.join("/")}`
@@ -176,7 +176,7 @@ export function normalizeGitRemoteUrl(value: string): string {
   // path (`host:/srv/repo`) keys like `ssh://host/srv/repo`, the same repository.
   const scpStyleHostAndPath = normalized.includes("://")
     ? null
-    : /^(?:[a-zA-Z0-9._-]+@)?([^:/\s@]{2,}):\/?([^/\s]+(?:\/[^/\s]+)+)$/i.exec(normalized);
+    : /^(?:[a-zA-Z0-9._-]+@)?([^:/\s@]{2,}):\/?([^/\s]+(?:\/[^/\s]+)*)$/i.exec(normalized);
   const scpHost = scpStyleHostAndPath?.[1];
   const scpPath = scpStyleHostAndPath?.[2];
   if (scpHost && scpPath) {
